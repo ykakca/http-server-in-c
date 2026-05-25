@@ -19,12 +19,12 @@ char* parse_get_req(char *buf)
     size_t buf_len = strlen(buf);
     char req[4], *req_file;
     
-    strncpy(buf, req, 3);
+    strncpy(req, buf, 3);
     req[3] = '\0';
 
     if (strcmp(req, "GET") != 0) {
         perror("http: invalid request");
-        return -1;
+        return NULL;
     } 
 
     req_file = (char*)malloc(sizeof(char) * (buf_len-3));
@@ -60,7 +60,6 @@ int main()
     struct sockaddr_storage their_addr;
     socklen_t sin_size;
     char s[INET6_ADDRSTRLEN];
-    char msg[]
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
@@ -106,6 +105,9 @@ int main()
         exit(1);
     }
 
+    char recv_buf[1024];
+    char send_buf[1024] = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, World!";
+
     sa.sa_handler = sigchld_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
@@ -124,15 +126,29 @@ int main()
             continue;
         }
 
+        int bytes_received, bytes_sent;
+        
+        bytes_received = recv(new_fd, recv_buf, sizeof(recv_buf), 0);
+        if (bytes_received == -1) {
+            perror("recv");
+            close(new_fd);
+            continue;
+        }
+        else {
+            recv_buf[bytes_received] = '\0';
+            printf("\nreceived: %s", recv_buf);
+        }
+
+        bytes_sent = send(new_fd, send_buf, sizeof(send_buf), 0);
+        if (bytes_sent == -1) {
+            perror("send");
+            close(new_fd);
+            continue;
+        }
+
         inet_ntop(their_addr.ss_family, 
             get_in_addr((struct sockaddr *)&their_addr),
             s, sizeof(s));
         printf("http: got connection from %s\n", s);
     }
-
-    if (!fork()) {
-        close(sockfd);
-        recv
-    }
-
 }
