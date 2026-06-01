@@ -13,6 +13,13 @@
 
 #define PORT "8080"
 #define BACKLOG 10
+#define RESPONSE_STATUS_200 "HTTP/1.1 200 OK\r\n"
+#define MAX_STATUS_LEN 50
+
+typedef struct BufferedFile {
+    char* data;
+    size_t size;
+} BufferedFile;
 
 char* parse_get_req(char *buf) 
 {
@@ -51,6 +58,91 @@ void sigchld_handler(int s)
     errno = saved_errno;
 }
 
+BufferedFile* read_file_into_buf(char* filename)
+{
+    FILE* fptr;
+    BufferedFile* buf = (BufferedFile*)malloc(sizeof(BufferedFile));
+    size_t len;
+
+    if (filename == NULL) {
+        perror("File name cannot be empty!");
+        return NULL;
+    }
+
+    fptr = fopen(filename, "r");
+    if (fptr == NULL) {
+        fprintf(stderr, "file %s could not be opened", filename);
+        return NULL;
+    }
+
+    if (fseek(fptr, 0L, SEEK_END) == 0) {
+        len = ftell(fptr);
+        if (len == -1) {
+            fprintf(stderr, "error while reading file %s", filename);
+            return NULL;
+        }
+        buf->data = (char*)malloc((len+1) * sizeof(char));
+
+        if (fseek(fptr, 0L, SEEK_SET) != 0) {
+            fprintf(stderr, "error while reading file %s", filename);
+            return NULL;
+        }; 
+
+        size_t new_len = fread(buf->data, sizeof(char), len, fptr);
+        if (ferror(fptr)) {
+            fprintf(stderr, "error while reading file %s", filename);
+            return NULL;
+        }
+
+        buf->size = new_len;
+    }
+
+    // printf("\nbuffer size: %ld", buf->size);
+    // printf("\nbuffered data : %s", buf->data);
+    
+    fclose(fptr);
+    return buf;
+}
+
+char* prepare_http_response(int status, char* filename) 
+{
+    int bytes_written = 0;
+    size_t response_size;
+    char* response;
+    BufferedFile* buf;
+
+    if (status == 200) {
+        if (filename == NULL) {
+            buf = (BufferedFile*)malloc(sizeof(BufferedFile));
+            buf->size = 0;
+            buf->data = NULL;
+        }
+        else {
+            buf = read_file_into_buf(filename);
+        }
+
+        response_size = buf->size + MAX_STATUS_LEN;
+        response = (char*)malloc(response_size*sizeof(char));
+
+        bytes_written += snprintf(response, response_size, RESPONSE_STATUS_200);
+        bytes_written += snprintf(response+bytes_written, response_size-bytes_written, "Content-Length: %ld\r\n", buf->size);
+
+        if (buf->size > 0) {
+            bytes_written += snprintf(response+bytes_written, response_size-bytes_written, "\r\n");
+            bytes_written += snprintf(response+bytes_written, response_size-bytes_written, buf->data);
+        }
+
+        printf("\nRESPONSE: \n%s", response);
+
+        if (buf->size > 0) {
+            free(buf->data);
+        }
+        free(buf);
+    }
+
+    return response;
+}
+
 int main()
 {
     int ai_ret, yes = 1;
@@ -65,6 +157,8 @@ int main()
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
+
+    // BufferedFile* buf = read_file_into_buf("index.html");
 
     if ((ai_ret = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s", gai_strerror(ai_ret));
@@ -106,7 +200,8 @@ int main()
     }
 
     char recv_buf[1024];
-    char send_buf[1024] = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, World!";
+    // char send_buf[1024] = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, World!";
+    char* response;
 
     sa.sa_handler = sigchld_handler;
     sigemptyset(&sa.sa_mask);
@@ -139,16 +234,23 @@ int main()
             printf("\nreceived: %s", recv_buf);
         }
 
-        bytes_sent = send(new_fd, send_buf, sizeof(send_buf), 0);
+        response = prepare_http_response(200, "index.html");
+
+        bytes_sent = send(new_fd, response, strlen(response), 0);
         if (bytes_sent == -1) {
             perror("send");
-            close(new_fd);
+            // close(new_fd);
             continue;
         }
+        close(new_fd);
 
         inet_ntop(their_addr.ss_family, 
             get_in_addr((struct sockaddr *)&their_addr),
             s, sizeof(s));
         printf("http: got connection from %s\n", s);
     }
+
+    free(response);
+    // free(buf->data);
+    // free(buf);
 }
