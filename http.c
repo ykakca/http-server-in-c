@@ -21,23 +21,62 @@ typedef struct BufferedFile {
     size_t size;
 } BufferedFile;
 
-char* parse_get_req(char *buf) 
-{
-    size_t buf_len = strlen(buf);
-    char req[4], *req_file;
-    
-    strncpy(req, buf, 3);
-    req[3] = '\0';
+typedef struct ParsedHTTPReq {
+    char* req_type;
+    char* path;
+    char* version;
+} ParsedHTTPReq;
 
-    if (strcmp(req, "GET") != 0) {
+ParsedHTTPReq* parse_get_req(char *buf) 
+{
+    ParsedHTTPReq *req = malloc(sizeof(ParsedHTTPReq));
+    size_t buf_len = strlen(buf);
+    char req_type[4], *req_file, *path, temp;
+    int i = 0, j = 0;
+
+    temp = buf[0];
+    while (temp != ' ' && temp != '\0') {
+        temp = buf[i];
+        i++;
+    }
+
+    req->req_type = malloc(sizeof(char) * i);
+    strncpy(req->req_type, buf, i);
+    req->req_type[i-1] = '\0';
+
+    //sonradan degistirilecek
+    if (strcmp(req->req_type, "GET") != 0) {
         perror("http: invalid request");
         return NULL;
     } 
 
-    req_file = (char*)malloc(sizeof(char) * (buf_len-3));
-    memcpy(req_file, buf+3, buf_len-3);
+    temp = buf[i];
+    while (temp != ' ' && temp != '\0') {
+        temp = buf[i+j];
+        j++;
+    }
 
-    return req_file;
+    // path = (char*)malloc(sizeof(char) * j);
+    req->path = malloc(sizeof(char) * j);
+    strncpy(req->path, buf+i, j);
+    req->path[j-1] = '\0';
+
+    printf("\n\n%c\n\n", buf[i+j]);
+
+    printf("i=%d j=%d buf[i+j]=%c\n", i, j, buf[i+j]);
+
+    req->version = malloc(sizeof(char) * (buf_len-i));
+    strncpy(req->version, buf+i+j, buf_len-(i+j));
+    char* crlf = strchr(req->version, '\r');
+    if (crlf) *crlf = '\0';
+    req->version[buf_len-(i+j)-1] = '\0';
+
+    printf("\n%slen:%d", req->req_type, i);
+    printf("\n%slen:%d", req->path, j);
+    printf("\n%slen:%ld", req->version, buf_len-(i+j));
+    printf("\n\n");
+
+    return req;
 }
 
 void* get_in_addr(struct sockaddr *sa) 
@@ -159,6 +198,14 @@ int main()
     hints.ai_flags = AI_PASSIVE;
 
     // BufferedFile* buf = read_file_into_buf("index.html");
+
+    char* reqbuf = "GET /index.html HTTP/1.1\r\n";
+    ParsedHTTPReq *req = parse_get_req(reqbuf);
+
+    free(req->path);
+    free(req->version);
+    free(req->req_type);
+    free(req);
 
     if ((ai_ret = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s", gai_strerror(ai_ret));
