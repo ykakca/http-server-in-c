@@ -14,6 +14,7 @@
 #define PORT "8080"
 #define BACKLOG 10
 #define RESPONSE_STATUS_200 "HTTP/1.1 200 OK\r\n"
+#define RESPONSE_STATUS_404 "HTTP/1.1 404 Not Found\r\n"
 #define MAX_STATUS_LEN 50
 
 typedef struct BufferedFile {
@@ -21,11 +22,13 @@ typedef struct BufferedFile {
     size_t size;
 } BufferedFile;
 
+
 typedef struct ParsedHTTPReq {
     char* req_type;
     char* path;
     char* version;
 } ParsedHTTPReq;
+
 
 ParsedHTTPReq* parse_get_req(char *buf) 
 {
@@ -75,9 +78,14 @@ ParsedHTTPReq* parse_get_req(char *buf)
     printf("\n%slen:%d", req->path, j);
     printf("\n%slen:%ld", req->version, buf_len-(i+j));
     printf("\n\n");
+    printf("\ntype: %s*", req->req_type);
+    printf("\npath: %s*", req->path);
+    printf("\nversion: %s*", req->version);
+    printf("\n\n");
 
     return req;
 }
+
 
 void* get_in_addr(struct sockaddr *sa) 
 {
@@ -88,6 +96,7 @@ void* get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6 *)sa)->sin6_addr);
 }
 
+
 void sigchld_handler(int s) 
 {
     int saved_errno = errno;
@@ -96,6 +105,7 @@ void sigchld_handler(int s)
     
     errno = saved_errno;
 }
+
 
 BufferedFile* read_file_into_buf(char* filename)
 {
@@ -135,52 +145,63 @@ BufferedFile* read_file_into_buf(char* filename)
 
         buf->size = new_len;
     }
-
-    // printf("\nbuffer size: %ld", buf->size);
-    // printf("\nbuffered data : %s", buf->data);
     
     fclose(fptr);
     return buf;
 }
 
-char* prepare_http_response(int status, char* filename) 
+
+char* prepare_http_response(char* filename) 
 {
+    int status;
     int bytes_written = 0;
     size_t response_size;
     char* response;
+    char* status_str;
     BufferedFile* buf;
+    char* file_to_read = filename;
 
-    if (status == 200) {
-        if (filename == NULL) {
-            buf = (BufferedFile*)malloc(sizeof(BufferedFile));
-            buf->size = 0;
-            buf->data = NULL;
-        }
-        else {
-            buf = read_file_into_buf(filename);
-        }
-
-        response_size = buf->size + MAX_STATUS_LEN;
-        response = (char*)malloc(response_size*sizeof(char));
-
-        bytes_written += snprintf(response, response_size, RESPONSE_STATUS_200);
-        bytes_written += snprintf(response+bytes_written, response_size-bytes_written, "Content-Length: %ld\r\n", buf->size);
-
-        if (buf->size > 0) {
-            bytes_written += snprintf(response+bytes_written, response_size-bytes_written, "\r\n");
-            bytes_written += snprintf(response+bytes_written, response_size-bytes_written, buf->data);
-        }
-
-        printf("\nRESPONSE: \n%s", response);
-
-        if (buf->size > 0) {
-            free(buf->data);
-        }
-        free(buf);
+    if (filename[0] == '/' || filename == NULL) {
+        status = 200;
+        file_to_read = "index.html";
+    }
+    else if (fopen(filename, "r") == NULL) {
+        status = 404;
+    }
+    else {
+        status = 200;
     }
 
+    if (status == 200) {
+        status_str = RESPONSE_STATUS_200;
+        buf = read_file_into_buf(file_to_read);
+    }
+    else if (status == 404) {
+        status_str = RESPONSE_STATUS_404;
+        buf = read_file_into_buf("404.html");
+    }
+        
+    response_size = buf->size + MAX_STATUS_LEN;
+    response = (char*)malloc(response_size*sizeof(char));
+
+    bytes_written += snprintf(response, response_size, status_str);
+    bytes_written += snprintf(response+bytes_written, response_size-bytes_written, "Content-Length: %ld\r\n", buf->size);
+
+    if (buf->size > 0) {
+        bytes_written += snprintf(response+bytes_written, response_size-bytes_written, "\r\n");
+        bytes_written += snprintf(response+bytes_written, response_size-bytes_written, buf->data);
+    }
+
+    printf("\nRESPONSE: \n%s", response);
+
+    if (buf->size > 0) {
+        free(buf->data);
+    }
+    free(buf);
+    
     return response;
 }
+
 
 int main()
 {
@@ -200,12 +221,13 @@ int main()
     // BufferedFile* buf = read_file_into_buf("index.html");
 
     char* reqbuf = "GET /index.html HTTP/1.1\r\n";
-    ParsedHTTPReq *req = parse_get_req(reqbuf);
+    // ParsedHTTPReq *req = parse_get_req(reqbuf);
 
-    free(req->path);
-    free(req->version);
-    free(req->req_type);
-    free(req);
+    // free(req->path);
+    // free(req->version);
+    // free(req->req_type);
+    // free(req);
+    ParsedHTTPReq *req = parse_get_req(reqbuf);
 
     if ((ai_ret = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s", gai_strerror(ai_ret));
@@ -278,10 +300,12 @@ int main()
         }
         else {
             recv_buf[bytes_received] = '\0';
-            printf("\nreceived: %s", recv_buf);
+            // printf("\nreceived:\n %s", recv_buf);
+
+            req = parse_get_req(recv_buf);
         }
 
-        response = prepare_http_response(200, "index.html");
+        response = prepare_http_response(req->path+1);
 
         bytes_sent = send(new_fd, response, strlen(response), 0);
         if (bytes_sent == -1) {
@@ -298,6 +322,10 @@ int main()
     }
 
     free(response);
+    free(req->path);
+    free(req->req_type);
+    free(req->version);
+    free(req);
     // free(buf->data);
     // free(buf);
 }
