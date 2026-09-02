@@ -17,6 +17,7 @@
 #define RESPONSE_STATUS_404 "HTTP/1.1 404 Not Found\r\n"
 #define MAX_STATUS_LEN 50
 
+
 typedef struct BufferedFile {
     char* data;
     size_t size;
@@ -34,49 +35,36 @@ ParsedHTTPReq* parse_get_req(char *buf)
 {
     ParsedHTTPReq *req = malloc(sizeof(ParsedHTTPReq));
     size_t buf_len = strlen(buf);
-    char req_type[4], *req_file, *path, temp;
-    int i = 0, j = 0;
+    char *temp1, *temp2, *temp3;
 
-    temp = buf[0];
-    while (temp != ' ' && temp != '\0') {
-        temp = buf[i];
-        i++;
-    }
+    temp1 = strchr(buf, ' ');
 
-    req->req_type = malloc(sizeof(char) * i);
-    strncpy(req->req_type, buf, i);
-    req->req_type[i-1] = '\0';
+    req->req_type = malloc(sizeof(char) * (temp1-buf+1));
+    strncpy(req->req_type, buf, temp1-buf);
+    req->req_type[temp1-buf] = '\0';
 
     //sonradan degistirilecek
     if (strcmp(req->req_type, "GET") != 0) {
         perror("http: invalid request");
+        free(req->req_type);
+        free(req);
         return NULL;
     } 
 
-    temp = buf[i];
-    while (temp != ' ' && temp != '\0') {
-        temp = buf[i+j];
-        j++;
-    }
+    temp2 = strchr(temp1+1, ' ');
 
-    // path = (char*)malloc(sizeof(char) * j);
-    req->path = malloc(sizeof(char) * j);
-    strncpy(req->path, buf+i, j);
-    req->path[j-1] = '\0';
+    req->path = malloc(sizeof(char) * (temp2-temp1+1));
+    strncpy(req->path, temp1+1, temp2-temp1);
+    req->path[temp2-temp1] = '\0';
 
-    printf("\n\n%c\n\n", buf[i+j]);
+    temp3 = strchr(temp2+1, ' ');
 
-    printf("i=%d j=%d buf[i+j]=%c\n", i, j, buf[i+j]);
-
-    req->version = malloc(sizeof(char) * (buf_len-i));
-    strncpy(req->version, buf+i+j, buf_len-(i+j));
+    req->version = malloc(sizeof(char) * (temp3-temp2+1));
+    strncpy(req->version, temp2+1, temp3-temp2);
     char* crlf = strchr(req->version, '\r');
     if (crlf) *crlf = '\0';
-    req->version[buf_len-(i+j)-1] = '\0';
+    req->version[temp3-buf] = '\0';
 
-    printf("\n%slen:%d", req->req_type, i);
-    printf("\n%slen:%d", req->path, j);
-    printf("\n%slen:%ld", req->version, buf_len-(i+j));
     printf("\n\n");
     printf("\ntype: %s*", req->req_type);
     printf("\npath: %s*", req->path);
@@ -138,6 +126,7 @@ BufferedFile* read_file_into_buf(char* filename)
         }; 
 
         size_t new_len = fread(buf->data, sizeof(char), len, fptr);
+        buf->data[len] = '/0';
         if (ferror(fptr)) {
             fprintf(stderr, "error while reading file %s", filename);
             return NULL;
@@ -161,10 +150,16 @@ char* prepare_http_response(char* filename)
     BufferedFile* buf;
     char* file_to_read = filename;
 
-    if (filename[0] == '/' || filename == NULL) {
+    if (filename == NULL) {
+        perror("filename not specified");
+        return NULL;
+    }
+
+    if (filename[0] == '/') {
         status = 200;
         file_to_read = "index.html";
     }
+
     else if (fopen(filename, "r") == NULL) {
         status = 404;
     }
@@ -299,10 +294,15 @@ int main()
             continue;
         }
         else {
-            recv_buf[bytes_received] = '\0';
+            recv_buf[bytes_received-1] = '\0';
             // printf("\nreceived:\n %s", recv_buf);
 
             req = parse_get_req(recv_buf);
+        }
+
+        if (req == NULL) {
+            perror("null request");
+            continue;
         }
 
         response = prepare_http_response(req->path+1);
